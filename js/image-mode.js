@@ -3,6 +3,7 @@ import { buildPanel, debounce, toast, setupDrop, loadSettings, saveSettings, fmt
 import { processHeight, heightPercentiles, drawResult, drawHistogram, exportPNG, safeBase, gaussBlur, maskedBlur, distanceToEdge, shapeMask } from './heightmap.js';
 import { COMMON_DEFAULTS, graySection, outputSection, applyPreset, laserInfoHTML, statsHTML } from './presets.js';
 import { ReliefPreview } from './relief-preview.js';
+import { estimateDepth, sampleDepth, MODEL_NAME } from './ai-depth.js';
 
 const IMAGE_DEFAULTS = {
   ...COMMON_DEFAULTS,
@@ -11,7 +12,11 @@ const IMAGE_DEFAULTS = {
   offX: 0,
   offY: 0,
   rot: 0,
+  method: 'lum',         // 'lum' = aus Helligkeit, 'ai' = KI-Tiefenschätzung
   heightFrom: 'light',   // 'light' = hell ist hoch, 'dark' = dunkel ist hoch
+  aiRes: 518,            // Arbeitsauflösung des KI-Modells
+  aiCut: 0,              // Hintergrund nach Tiefe abschneiden (%)
+  aiTexture: 0,          // Foto-Struktur einmischen (%)
   bgRemove: 'auto',      // 'none' | 'auto' | 'white' | 'black' | 'corner'
   tol: 12,
   detail: 0,
@@ -38,6 +43,11 @@ export class ImageMode {
     this.initPanel();
     this.relief = new ReliefPreview(this.view, { quality: 420 });
     this.view.prepend(this.relief.renderer.domElement);
+    this.busyEl = h('div', { class: 'busy-overlay hidden' },
+      h('div', { class: 'busy-card' },
+        this.busyText = h('div', {}, '…'),
+        h('div', { class: 'progress' }, this.busyBar = h('div', { class: 'bar' }))));
+    this.view.append(this.busyEl);
 
     this.rebuild = debounce(() => this.buildSource(), 120);
     this.reprocess = debounce(() => this.process(), 60);
@@ -73,7 +83,20 @@ export class ImageMode {
         { key: 'rot', type: 'seg', label: 'Drehen', stage: 'source', options: [[0, '0°'], [90, '90°'], [180, '180°'], [270, '270°']] },
       ] },
       { title: 'Relief', step: 3, items: [
-        { key: 'heightFrom', type: 'seg', label: 'Höhe aus Helligkeit', stage: 'source',
+        { key: 'method', type: 'seg', label: 'Höhe berechnen aus', stage: 'source',
+          options: [['lum', 'Helligkeit'], ['ai', '✨ KI-Tiefe (Foto)']],
+          hint: 'Helligkeit: Grauwert = Höhe (gut für Logos, Zeichnungen). KI-Tiefe: ein neuronales Netz schätzt die echte räumliche Tiefe des Fotos (gut für Gesichter, Tiere, Objekte). Läuft lokal im Browser.' },
+        { type: 'info', id: 'aiInfo', show: st => st.method === 'ai' },
+        { key: 'aiRes', type: 'seg', label: 'KI-Auflösung', stage: 'source', show: st => st.method === 'ai',
+          options: [[518, 'Standard'], [770, 'Hoch'], [1036, 'Sehr hoch']],
+          hint: 'Höher = feinere Tiefendetails, aber langsamer. Standard ist die Trainingsauflösung des Modells.' },
+        { key: 'aiCut', type: 'range', label: 'Hintergrund nach Tiefe abschneiden', min: 0, max: 95, step: 0.5, unit: '%', stage: 'source', reset: 0,
+          show: st => st.method === 'ai',
+          hint: 'Alles, was weiter hinten liegt als dieser Wert, wird transparent – z. B. um eine Person vom Hintergrund zu trennen. Der Rest nutzt danach den vollen Tiefenbereich.' },
+        { key: 'aiTexture', type: 'range', label: 'Foto-Struktur einmischen', min: 0, max: 100, step: 1, unit: '%', stage: 'source', reset: 0,
+          show: st => st.method === 'ai',
+          hint: 'Fügt feine Strukturen aus dem Foto hinzu (Haare, Stoff, Falten), die die KI-Tiefe glättet. Radius = Detail-Radius.' },
+        { key: 'heightFrom', type: 'seg', label: 'Höhe aus Helligkeit', stage: 'source', show: st => st.method !== 'ai',
           options: [['light', 'Hell = hoch'], ['dark', 'Dunkel = hoch']],
           hint: 'Bei Fotos meist „Hell = hoch“. Bei dunklen Strichzeichnungen auf weißem Grund „Dunkel = hoch“.' },
         { key: 'bgRemove', type: 'select', label: 'Hintergrund entfernen', stage: 'source',
@@ -84,7 +107,8 @@ export class ImageMode {
           hint: 'Glättet das Bild vor dem Detail- und Wölbungs-Schritt.' },
         { key: 'detail', type: 'range', label: 'Details betonen', min: 0, max: 300, step: 1, unit: '%', stage: 'source', reset: 0,
           hint: 'Hebt feine Strukturen hervor (lokaler Kontrast). Gut für Fotos und Gesichter.' },
-        { key: 'detailMm', type: 'range', label: 'Detail-Radius', min: 0.1, max: 10, step: 0.1, unit: 'mm', stage: 'source', reset: 1, show: st => st.detail > 0 },
+        { key: 'detailMm', type: 'range', label: 'Detail-Radius', min: 0.1, max: 10, step: 0.1, unit: 'mm', stage: 'source', reset: 1,
+          show: st => st.detail > 0 || (st.method === 'ai' && st.aiTexture > 0) },
         { key: 'dome', type: 'range', label: 'Wölbung (Kissen-Effekt)', min: 0, max: 100, step: 1, unit: '%', stage: 'source', reset: 0,
           hint: 'Rundet das Motiv zu den Rändern hin ab – ideal für Logos, Schriften und Silhouetten.' },
         { key: 'domeMm', type: 'range', label: 'Wölbungs-Breite', min: 0.2, max: 40, step: 0.1, unit: 'mm', stage: 'source', reset: 4, show: st => st.dome > 0 },
@@ -98,6 +122,8 @@ export class ImageMode {
       outputSection(5),
     ];
     this.panel = buildPanel(document.getElementById('image-panel'), schema, s, (k, v, c) => this.onChange(k, v, c));
+    this.panel.els.aiInfo.innerHTML = `<b>${MODEL_NAME}</b> – schätzt die räumliche Tiefe aus einem einzelnen Foto. ` +
+      'Läuft lokal im Browser (Foto wird nicht hochgeladen). Beim ersten Mal werden Bibliothek und Modell geladen (ca. 30–80 MB), danach aus dem Cache.';
   }
 
   onChange(key, v, c) {
@@ -167,6 +193,7 @@ export class ImageMode {
 
   setImage(img, w, hh, name) {
     this.img = img; this.imgW = w; this.imgH = hh; this.fileName = name;
+    this.aiDepth = null; this.aiKey = '';
     // Analysebild (klein) für Transparenz & Eckfarbe
     const a = document.createElement('canvas');
     const k = Math.min(1, 256 / Math.max(w, hh));
@@ -197,6 +224,11 @@ export class ImageMode {
   buildSource() {
     if (!this.img) return;
     const s = this.state;
+    const useAI = s.method === 'ai';
+    if (useAI && (!this.aiDepth || this.aiKey !== String(s.aiRes))) {
+      this.runAI();
+      return;
+    }
     const rot = Number(s.rot) || 0;
     const swap = rot === 90 || rot === 270;
     const iw = swap ? this.imgH : this.imgW, ih = swap ? this.imgW : this.imgH;
@@ -232,7 +264,7 @@ export class ImageMode {
     let lum = new Float32Array(n);
     const alpha = new Float32Array(n);
     let mode = s.bgRemove;
-    if (mode === 'auto') mode = this.hasAlpha ? 'alpha' : 'corner';
+    if (mode === 'auto') mode = this.hasAlpha ? 'alpha' : (useAI ? 'none' : 'corner');
     const tol = s.tol / 100 * 441.7; // max. RGB-Abstand
     const key = mode === 'white' ? [255, 255, 255] : mode === 'black' ? [0, 0, 0] : mode === 'corner' ? this.cornerColor : null;
     const darkHigh = s.heightFrom === 'dark';
@@ -248,9 +280,11 @@ export class ImageMode {
       }
       alpha[i] = a;
       let L = (0.2126 * r + 0.7152 * gg + 0.0722 * b) / 255;
-      if (darkHigh) L = 1 - L;
+      if (darkHigh && !useAI) L = 1 - L;
       lum[i] = L;
     }
+
+    if (useAI) lum = this.aiHeights(lum, alpha, W, H, sc, rot, effPxPerMm);
 
     if (s.preBlurMm > 0) lum = maskedBlur(lum, alpha, W, H, s.preBlurMm * effPxPerMm);
 
@@ -280,6 +314,89 @@ export class ImageMode {
 
     this.raw = { w: W, h: H, height: lum, alpha, mmW, mmH, pxPerMm: effPxPerMm };
     this.process();
+  }
+
+  /** KI-Tiefe in den Ausgabe-Ausschnitt übertragen (gleiche Transformation wie beim Zeichnen). */
+  aiHeights(lum, alpha, W, H, sc, rot, pxPerMm) {
+    const s = this.state, d = this.aiDepth;
+    const n = W * H;
+    const tx = W / 2 + s.offX / 100 * W / 2, ty = H / 2 + s.offY / 100 * H / 2;
+    const a = -rot * Math.PI / 180, cos = Math.cos(a), sin = Math.sin(a);
+    const cx = this.imgW / 2, cy = this.imgH / 2;
+    const depth = new Float32Array(n);
+    let mn = Infinity, mx = -Infinity;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x;
+        if (alpha[i] <= 0) continue;
+        const px = x + 0.5 - tx, py = y + 0.5 - ty;
+        const u = cx + (px * cos - py * sin) / sc;
+        const v = cy + (px * sin + py * cos) / sc;
+        const val = sampleDepth(d, u, v, this.imgW, this.imgH);
+        depth[i] = val;
+        if (val < mn) mn = val;
+        if (val > mx) mx = val;
+      }
+    }
+    if (!(mx > mn)) return depth;
+    // Auf sichtbaren Ausschnitt normalisieren, optional hinten abschneiden
+    const cut = s.aiCut / 100;
+    const span = mx - mn;
+    for (let i = 0; i < n; i++) {
+      if (alpha[i] <= 0) continue;
+      let t = (depth[i] - mn) / span;
+      if (cut > 0) {
+        if (t < cut) { alpha[i] = 0; t = 0; } else t = (t - cut) / (1 - cut);
+      }
+      depth[i] = t;
+    }
+    // Feine Foto-Struktur (Hochpass der Helligkeit) einmischen
+    if (s.aiTexture > 0) {
+      const base = maskedBlur(lum, alpha, W, H, s.detailMm * pxPerMm);
+      const k = s.aiTexture / 100 * 0.6;
+      for (let i = 0; i < n; i++) if (alpha[i] > 0) depth[i] += k * (lum[i] - base[i]);
+    }
+    return depth;
+  }
+
+  async runAI() {
+    if (this.aiRunning) { this.aiPending = true; return; }
+    this.aiRunning = true;
+    const s = this.state;
+    const res = s.aiRes;
+    const info = this.panel.els.aiInfo;
+    const files = {};
+    const setBusy = (text, pct) => {
+      this.busyEl.classList.remove('hidden');
+      this.busyText.textContent = text;
+      this.busyBar.style.width = pct == null ? '100%' : `${pct}%`;
+      this.busyBar.classList.toggle('indet', pct == null);
+    };
+    try {
+      const d = await estimateDepth(this.img, this.imgW, this.imgH, res, p => {
+        if (p.status === 'lib') setBusy('KI-Bibliothek wird geladen …', null);
+        else if (p.status === 'progress' && p.file && /\.onnx$/.test(p.file)) {
+          files[p.file] = p;
+          const mb = (p.loaded / 1e6).toFixed(0), tot = (p.total / 1e6).toFixed(0);
+          setBusy(`KI-Modell wird geladen (einmalig): ${mb} / ${tot} MB`, p.progress);
+        } else if (p.status === 'infer') setBusy('KI berechnet die Tiefe …', null);
+      });
+      if (this.state.aiRes !== res) { this.aiRunning = false; return this.runAI(); }
+      this.aiDepth = d;
+      this.aiKey = String(res);
+      const dev = d.device === 'webgpu' ? 'WebGPU (Grafikkarte)' : 'WebAssembly (Prozessor)';
+      info.innerHTML = `<b>${MODEL_NAME}</b> · ${dev} · ${d.dtype}<br>Tiefenkarte ${d.w} × ${d.h} px in ${fmtNum(d.ms / 1000, 1)} s`;
+      this.busyEl.classList.add('hidden');
+      this.aiRunning = false;
+      this.buildSource();
+    } catch (err) {
+      console.error(err);
+      this.aiRunning = false;
+      this.busyEl.classList.add('hidden');
+      info.innerHTML = '<span class="warn">KI-Tiefe nicht verfügbar: ' + (err.message || err) + '</span><br>Internetverbindung nötig (einmaliger Download von Bibliothek und Modell).';
+      toast('KI-Tiefenschätzung fehlgeschlagen – siehe Hinweis im Panel.', true, 6000);
+    }
+    if (this.aiPending) { this.aiPending = false; this.buildSource(); }
   }
 
   process() {

@@ -145,8 +145,17 @@
       <ol>
         <li>Bild laden, Ausschnitt mit Zoom/Versatz/Drehung festlegen.</li>
         <li>Hintergrund entfernen (Transparenz, weiß, schwarz oder Eckfarbe).</li>
-        <li>Höhe aus Helligkeit ableiten, mit <i>Wölbung</i> einen Kissen-/Dom-Effekt erzeugen,
-          mit <i>Details</i> feine Strukturen betonen.</li>
+        <li><b>Höhe berechnen aus:</b>
+          <ul>
+            <li><i>Helligkeit</i> – Grauwert = Höhe. Ideal für Logos, Schriften, Zeichnungen.</li>
+            <li><i>✨ KI-Tiefe (Foto)</i> – ein neuronales Netz (Depth Anything V2) schätzt die echte räumliche Tiefe
+              eines Fotos: Nase vor Wangen, Person vor Hintergrund. Ideal für Porträts, Tiere, Objekte.
+              Läuft lokal im Browser (mit WebGPU in ca. 1 s, sonst einige Sekunden). Beim ersten Mal werden
+              Bibliothek und Modell geladen (ca. 30–80 MB), danach kommen sie aus dem Browser-Cache.
+              Mit <i>Hintergrund nach Tiefe abschneiden</i> trennst du das Motiv vom Hintergrund,
+              <i>Foto-Struktur einmischen</i> holt feine Details wie Haare zurück.</li>
+          </ul></li>
+        <li>Mit <i>Wölbung</i> einen Kissen-/Dom-Effekt erzeugen, mit <i>Details</i> feine Strukturen betonen.</li>
         <li>In der großen 3D-Vorschau das Ergebnis auf dem gewählten Material prüfen und exportieren.</li>
       </ol>
 
@@ -161,7 +170,8 @@
 
       <h3>Datenschutz</h3>
       <p>Alle Berechnungen laufen lokal in deinem Browser. Modelle und Bilder verlassen deinen Rechner nicht.
-        Einstellungen werden nur lokal im Browser gespeichert.</p>
+        Einstellungen werden nur lokal im Browser gespeichert. Für die KI-Tiefe werden nur Programmbibliothek
+        (jsDelivr) und Modell (Hugging Face) heruntergeladen – das Foto selbst wird nicht übertragen.</p>
     </div>
   </dialog>
 </body>

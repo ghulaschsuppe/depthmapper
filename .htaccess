@@ -1,4 +1,12 @@
-# Korrekte MIME-Typen für ES-Module und SVG
+# Korrekte MIME-Typen für ES-Module, WebAssembly und SVG
 AddType text/javascript .js .mjs
+AddType application/wasm .wasm
 AddType image/svg+xml .svg
 DirectoryIndex index.html
+
+# Cross-Origin-Isolation: erlaubt der KI-Tiefenschätzung mehrere CPU-Threads (WebAssembly).
+# "credentialless" lässt das Laden von Bibliothek und Modell von CDNs weiterhin zu.
+<IfModule mod_headers.c>
+  Header set Cross-Origin-Opener-Policy "same-origin"
+  Header set Cross-Origin-Embedder-Policy "credentialless"
+</IfModule>

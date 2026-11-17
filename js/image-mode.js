@@ -89,7 +89,7 @@ export class ImageMode {
         { type: 'info', id: 'aiInfo', show: st => st.method === 'ai' },
         { key: 'aiRes', type: 'seg', label: 'KI-Auflösung', stage: 'source', show: st => st.method === 'ai',
           options: [[518, 'Standard'], [770, 'Hoch'], [1036, 'Sehr hoch']],
-          hint: 'Höher = feinere Tiefendetails, aber langsamer. Standard ist die Trainingsauflösung des Modells.' },
+          hint: 'Höher = feinere Tiefendetails, aber langsamer und deutlich mehr Speicher. Standard ist die Trainingsauflösung des Modells. Reicht der Speicher (z. B. am Handy) nicht, wird die Auflösung automatisch reduziert.' },
         { key: 'aiCut', type: 'range', label: 'Hintergrund nach Tiefe abschneiden', min: 0, max: 95, step: 0.5, unit: '%', stage: 'source', reset: 0,
           show: st => st.method === 'ai',
           hint: 'Alles, was weiter hinten liegt als dieser Wert, wird transparent – z. B. um eine Person vom Hintergrund zu trennen. Der Rest nutzt danach den vollen Tiefenbereich.' },
@@ -379,13 +379,20 @@ export class ImageMode {
           files[p.file] = p;
           const mb = (p.loaded / 1e6).toFixed(0), tot = (p.total / 1e6).toFixed(0);
           setBusy(`KI-Modell wird geladen (einmalig): ${mb} / ${tot} MB`, p.progress);
-        } else if (p.status === 'infer') setBusy('KI berechnet die Tiefe …', null);
+        } else if (p.status === 'infer') setBusy(`KI berechnet die Tiefe (${p.res} px) …`, null);
       });
       if (this.state.aiRes !== res) { this.aiRunning = false; return this.runAI(); }
       this.aiDepth = d;
       this.aiKey = String(res);
       const dev = d.device === 'webgpu' ? 'WebGPU (Grafikkarte)' : 'WebAssembly (Prozessor)';
-      info.innerHTML = `<b>${MODEL_NAME}</b> · ${dev} · ${d.dtype}<br>Tiefenkarte ${d.w} × ${d.h} px in ${fmtNum(d.ms / 1000, 1)} s`;
+      const notes = {
+        limit: `Auf diesem Gerät auf ${d.res} px begrenzt (Grafik-/Arbeitsspeicher).`,
+        fallback: `Automatisch auf ${d.res} px reduziert – mehr Speicher war nicht verfügbar.`,
+        wasm: `Grafikkarte nicht nutzbar – mit dem Prozessor bei ${d.res} px berechnet.`,
+      };
+      info.innerHTML = `<b>${MODEL_NAME}</b> · ${dev} · ${d.dtype}<br>Tiefenkarte ${d.w} × ${d.h} px in ${fmtNum(d.ms / 1000, 1)} s` +
+        (d.note ? `<br><span class="note">${notes[d.note]}</span>` : '');
+      if (d.note) toast(notes[d.note], false, 5000);
       this.busyEl.classList.add('hidden');
       this.aiRunning = false;
       this.buildSource();

@@ -6,7 +6,7 @@ z. B. für Messing-Münzen mit dem xTool F2 Ultra.
 - **3D-Modell → Depthmap:** STL, OBJ, PLY, 3MF, GLB/GLTF laden, frei ausrichten, Tiefe und Graustufen einstellen,
   positiv (erhaben) oder invertiert (eingeprägt).
 - **Bild → Relief:** Aus Fotos, Logos und Zeichnungen ein Relief erzeugen – per Helligkeit oder mit
-  **KI-Tiefenschätzung** (Depth Anything V2, läuft lokal im Browser), dazu Wölbung und Detailbetonung.
+  **KI-Tiefenschätzung** (Depth Anything 3 Mono Large bzw. V2 Small, läuft lokal im Browser), dazu Wölbung und Detailbetonung.
 - 3D-Gravurvorschau auf Messing, Holz, Edelstahl & Co.
 - Export als PNG mit transparentem Hintergrund und korrekter DPI-Angabe.
 

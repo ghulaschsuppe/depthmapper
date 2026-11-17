@@ -18,11 +18,19 @@ orientiert an den Werten des **xTool F2 Ultra** (Standard: 256 Graustufen, z. B.
 - Bild laden, Einpassen/Füllen, Zoom, Versatz, Drehung
 - Hintergrund entfernen (Transparenz, Weiß, Schwarz, Eckfarbe, automatisch)
 - Höhe aus Helligkeit (hell oder dunkel = hoch), Rauschfilter, Detailbetonung, Wölbung (Kissen-Effekt per Distanztransformation)
-- **KI-Tiefe (Foto):** echte monokulare Tiefenschätzung mit *Depth Anything V2 Small* (Apache-2.0) über
-  Transformers.js 4.3.2 / ONNX Runtime Web – WebGPU (fp16/fp32) mit Fallback auf WebAssembly (q8).
-  Läuft im Browser; Bibliothek wird bei Bedarf von jsDelivr, das Modell (~27–50 MB) von Hugging Face geladen
-  und im Browser-Cache gehalten. Optionen: KI-Auflösung (518/770/1036), Hintergrund nach Tiefe abschneiden,
-  Foto-Struktur einmischen (Hochpass der Helligkeit).
+- **KI-Tiefe (Foto):** echte monokulare Tiefenschätzung, direkt über ONNX Runtime Web 1.31.1
+  (WebGPU, Fallback WebAssembly), Modellauswahl:
+  - *Depth Anything 3 Mono Large* (ByteDance, Apache-2.0, q4f16, ~353 MB) – beste Details, nur PC.
+    ONNX-Build: `Jens-Duttke/Depth-Anything-3-MONO-ONNX`, quadratische Eingabe 252/364/518/728/1036, Ausgabe Disparität.
+  - *Depth Anything V2 Small* (Apache-2.0, fp16 ~50 MB bzw. fp32 auf WebGPU ohne FP16) – schnell, auch Handy.
+    Hinweis: Die q8-Variante erzeugt sichtbares Rauschen und wird deshalb nicht verwendet.
+  - Modelle werden einmalig von Hugging Face geladen und dauerhaft im Cache Storage (`depthmapper-models-v1`)
+    gespeichert, `navigator.storage.persist()` wird angefragt. Button zum Löschen im Panel.
+  - Arbeitsauflösung wird anhand des Speicherbedarfs (Attention ∝ Tokens²) an das Gerät angepasst,
+    bei Fehlern stufenweise reduziert, notfalls Wechsel WebGPU → WebAssembly.
+  - Optionen: KI-Auflösung, Hintergrund nach Tiefe abschneiden, Foto-Struktur einmischen.
+  - Geprüft und verworfen: DA3 Small (unscharf), MoGe-2 S/B (Rastermuster im ONNX-Export),
+    Depth Pro (Apple-Lizenz nur nicht-kommerziell, sehr groß), DA2/DA3 Large (CC-BY-NC).
 - Große 3D-Gravurvorschau
 
 ### Gemeinsam
@@ -43,7 +51,7 @@ Weiß = Oberfläche (keine Gravur), Schwarz = tiefste Stelle. „Invertieren“ 
 - Reines HTML/CSS/JavaScript (ES-Module), **kein Build-Schritt**, keine Datenbank, kein Server-Code nötig
 - Läuft auf jedem Standard-Webspace (z. B. mit PHP 8.1) direkt aus dem Verzeichnis
 - Three.js r170 liegt lokal unter `vendor/three/`
-- Einzige externe Quellen: Transformers.js (jsDelivr) und das KI-Modell (Hugging Face) – nur wenn „KI-Tiefe“ genutzt wird
+- Einzige externe Quellen: ONNX Runtime Web (jsDelivr) und die KI-Modelle (Hugging Face) – nur wenn „KI-Tiefe“ genutzt wird
 - Einstellungen werden im `localStorage` des Browsers gemerkt
 
 ## Struktur
@@ -53,7 +61,7 @@ css/style.css         Gestaltung
 js/main.js            Einstieg, Bereichs-Umschaltung, Hilfe
 js/model-mode.js      Bereich 1: 3D-Modell → Depthmap
 js/image-mode.js      Bereich 2: Bild → Relief
-js/ai-depth.js        KI-Tiefenschätzung (Depth Anything V2, lädt Transformers.js bei Bedarf)
+js/ai-depth.js        KI-Tiefenschätzung (Modellkatalog, ONNX Runtime Web, Modell-Cache, Speicherplanung)
 js/heightmap.js       Graustufen-Pipeline, Glättung, Distanztransformation, PNG-Encoder
 js/relief-preview.js  3D-Gravurvorschau
 js/presets.js         Voreinstellungen, Materialien, gemeinsame Einstellungs-Sektionen

@@ -123,7 +123,7 @@ function makeControl(c, state, onChange, refreshers, els) {
       const fill = () => {
         const opts = typeof c.options === 'function' ? c.options(state) : c.options;
         sel.innerHTML = '';
-        for (const [v, l] of opts) sel.append(h('option', { value: v }, l));
+        for (const [v, l, dis] of opts) sel.append(h('option', { value: v, disabled: dis ? '' : null }, l));
       };
       fill();
       sel.addEventListener('change', () => {

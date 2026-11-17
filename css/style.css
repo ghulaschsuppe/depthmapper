@@ -245,6 +245,7 @@ select {
 .check input:checked + .sw::after { left: 17px; background: #fff; }
 
 .btn-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.btn-grid.cols-1 { grid-template-columns: 1fr; }
 .btn-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
 .btn-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
 .btn-grid .btn { padding: 6px 4px; font-size: 12px; }

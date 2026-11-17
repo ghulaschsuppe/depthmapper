@@ -3,7 +3,7 @@ import { buildPanel, debounce, toast, setupDrop, loadSettings, saveSettings, fmt
 import { processHeight, heightPercentiles, drawResult, drawHistogram, exportPNG, safeBase, gaussBlur, maskedBlur, distanceToEdge, shapeMask } from './heightmap.js';
 import { COMMON_DEFAULTS, graySection, outputSection, applyPreset, laserInfoHTML, statsHTML } from './presets.js';
 import { ReliefPreview } from './relief-preview.js';
-import { estimateDepth, sampleDepth, MODEL_NAME } from './ai-depth.js';
+import { estimateDepth, sampleDepth, MODELS, isMobile, isCached, modelDownloadMB, storageInfo, clearModelCache } from './ai-depth.js';
 
 const IMAGE_DEFAULTS = {
   ...COMMON_DEFAULTS,
@@ -14,6 +14,7 @@ const IMAGE_DEFAULTS = {
   rot: 0,
   method: 'lum',         // 'lum' = aus Helligkeit, 'ai' = KI-Tiefenschätzung
   heightFrom: 'light',   // 'light' = hell ist hoch, 'dark' = dunkel ist hoch
+  aiModel: 'da3ml',      // KI-Modell (am Handy automatisch da2s)
   aiRes: 518,            // Arbeitsauflösung des KI-Modells
   aiCut: 0,              // Hintergrund nach Tiefe abschneiden (%)
   aiTexture: 0,          // Foto-Struktur einmischen (%)
@@ -86,6 +87,9 @@ export class ImageMode {
         { key: 'method', type: 'seg', label: 'Höhe berechnen aus', stage: 'source',
           options: [['lum', 'Helligkeit'], ['ai', '✨ KI-Tiefe (Foto)']],
           hint: 'Helligkeit: Grauwert = Höhe (gut für Logos, Zeichnungen). KI-Tiefe: ein neuronales Netz schätzt die echte räumliche Tiefe des Fotos (gut für Gesichter, Tiere, Objekte). Läuft lokal im Browser.' },
+        { key: 'aiModel', type: 'select', label: 'KI-Modell', stage: 'source', show: st => st.method === 'ai',
+          options: () => Object.entries(MODELS).map(([k, m]) => [k, `${m.name} (${m.vendor})${m.pcOnly ? ' – nur PC' : ''}`, m.pcOnly && isMobile()]),
+          hint: 'Depth Anything 3 Mono Large liefert die besten Details, ist aber groß und nur am PC sinnvoll. Depth Anything V2 Small ist schnell und läuft auch am Handy.' },
         { type: 'info', id: 'aiInfo', show: st => st.method === 'ai' },
         { key: 'aiRes', type: 'seg', label: 'KI-Auflösung', stage: 'source', show: st => st.method === 'ai',
           options: [[518, 'Standard'], [770, 'Hoch'], [1036, 'Sehr hoch']],
@@ -96,6 +100,10 @@ export class ImageMode {
         { key: 'aiTexture', type: 'range', label: 'Foto-Struktur einmischen', min: 0, max: 100, step: 1, unit: '%', stage: 'source', reset: 0,
           show: st => st.method === 'ai',
           hint: 'Fügt feine Strukturen aus dem Foto hinzu (Haare, Stoff, Falten), die die KI-Tiefe glättet. Radius = Detail-Radius.' },
+        { type: 'buttons', cols: 1, show: st => st.method === 'ai', items: [
+          { label: '🗑 Gespeicherte KI-Modelle löschen', id: 'aiClear', onClick: () => this.clearModels(),
+            title: 'Gibt den Speicher frei. Modelle werden bei der nächsten Nutzung neu geladen.' },
+        ] },
         { key: 'heightFrom', type: 'seg', label: 'Höhe aus Helligkeit', stage: 'source', show: st => st.method !== 'ai',
           options: [['light', 'Hell = hoch'], ['dark', 'Dunkel = hoch']],
           hint: 'Bei Fotos meist „Hell = hoch“. Bei dunklen Strichzeichnungen auf weißem Grund „Dunkel = hoch“.' },
@@ -122,8 +130,10 @@ export class ImageMode {
       outputSection(5),
     ];
     this.panel = buildPanel(document.getElementById('image-panel'), schema, s, (k, v, c) => this.onChange(k, v, c));
-    this.panel.els.aiInfo.innerHTML = `<b>${MODEL_NAME}</b> – schätzt die räumliche Tiefe aus einem einzelnen Foto. ` +
-      'Läuft lokal im Browser (Foto wird nicht hochgeladen). Beim ersten Mal werden Bibliothek und Modell geladen (ca. 30–80 MB), danach aus dem Cache.';
+    if (isMobile() && MODELS[s.aiModel]?.pcOnly) s.aiModel = 'da2s';
+    if (!MODELS[s.aiModel]) s.aiModel = 'da2s';
+    this.panel.refresh();
+    this.updateAIInfo();
   }
 
   onChange(key, v, c) {
@@ -135,6 +145,7 @@ export class ImageMode {
     }
     if (['sizeMm', 'lpcm', 'shape', 'steps', 'depthMm', 'material', 'bg'].includes(key)) s.preset = 'custom';
     this.save();
+    if (key === 'aiModel' || key === 'method') this.updateAIInfo();
     switch (c.stage) {
       case 'source': case 'capture': this.rebuild(); break;
       case 'process': this.reprocess(); break;
@@ -225,7 +236,7 @@ export class ImageMode {
     if (!this.img) return;
     const s = this.state;
     const useAI = s.method === 'ai';
-    if (useAI && (!this.aiDepth || this.aiKey !== String(s.aiRes))) {
+    if (useAI && (!this.aiDepth || this.aiKey !== this.aiWanted())) {
       this.runAI();
       return;
     }
@@ -359,13 +370,46 @@ export class ImageMode {
     return depth;
   }
 
+  aiWanted() { return `${this.state.aiModel}@${this.state.aiRes}`; }
+
+  /** Info-Kasten: Modell, Lizenz, Größe, Speicherstatus (+ optional Ergebniszeile) */
+  async updateAIInfo(resultHTML = '') {
+    const info = this.panel.els.aiInfo;
+    const key = this.state.aiModel, m = MODELS[key];
+    if (!info || !m) return;
+    let status = '';
+    try {
+      const [cached, mb] = await Promise.all([isCached(key), modelDownloadMB(key)]);
+      status = cached ? '✓ im Browser gespeichert – kein Download nötig'
+        : `wird beim ersten Mal geladen (ca. ${mb} MB), danach dauerhaft gespeichert`;
+    } catch { /* egal */ }
+    if (this.state.aiModel !== key) return;
+    info.innerHTML = `<b>${m.name}</b> · ${m.vendor}<br>${m.note}<br>Lizenz: ${m.license}<br>${status}` +
+      (resultHTML ? `<br>${resultHTML}` : '') +
+      '<br><small>Läuft lokal im Browser – das Foto wird nicht hochgeladen.</small>';
+    try {
+      const st = await storageInfo();
+      const btn = this.panel.els.aiClear;
+      if (btn) {
+        btn.textContent = st.count ? `🗑 Gespeicherte KI-Modelle löschen (${fmtNum(st.usageMB, 0)} MB)` : '🗑 Keine KI-Modelle gespeichert';
+        btn.disabled = !st.count;
+      }
+    } catch { /* egal */ }
+  }
+
+  async clearModels() {
+    if (!confirm('Alle im Browser gespeicherten KI-Modelle löschen? Sie werden bei der nächsten Nutzung neu heruntergeladen.')) return;
+    await clearModelCache();
+    toast('Gespeicherte KI-Modelle gelöscht');
+    this.updateAIInfo();
+  }
+
   async runAI() {
     if (this.aiRunning) { this.aiPending = true; return; }
     this.aiRunning = true;
     const s = this.state;
-    const res = s.aiRes;
-    const info = this.panel.els.aiInfo;
-    const files = {};
+    const wanted = this.aiWanted();
+    const key = s.aiModel, res = s.aiRes;
     const setBusy = (text, pct) => {
       this.busyEl.classList.remove('hidden');
       this.busyText.textContent = text;
@@ -373,34 +417,36 @@ export class ImageMode {
       this.busyBar.classList.toggle('indet', pct == null);
     };
     try {
-      const d = await estimateDepth(this.img, this.imgW, this.imgH, res, p => {
-        if (p.status === 'lib') setBusy('KI-Bibliothek wird geladen …', null);
-        else if (p.status === 'progress' && p.file && /\.onnx$/.test(p.file)) {
-          files[p.file] = p;
-          const mb = (p.loaded / 1e6).toFixed(0), tot = (p.total / 1e6).toFixed(0);
-          setBusy(`KI-Modell wird geladen (einmalig): ${mb} / ${tot} MB`, p.progress);
-        } else if (p.status === 'infer') setBusy(`KI berechnet die Tiefe (${p.res} px) …`, null);
+      const d = await estimateDepth(key, this.img, this.imgW, this.imgH, res, p => {
+        if (p.status === 'lib') setBusy('KI-Laufzeit wird geladen …', null);
+        else if (p.status === 'cached') setBusy('Gespeichertes KI-Modell wird geöffnet …', null);
+        else if (p.status === 'download') {
+          const mb = (p.loaded / 1e6).toFixed(0), tot = p.total ? (p.total / 1e6).toFixed(0) : '?';
+          setBusy(`KI-Modell wird geladen (nur beim ersten Mal): ${mb} / ${tot} MB`, p.total ? p.loaded / p.total * 100 : null);
+        } else if (p.status === 'init') setBusy('KI-Modell wird vorbereitet …', null);
+        else if (p.status === 'infer') setBusy(`KI berechnet die Tiefe (${p.res} px, ${p.device === 'webgpu' ? 'Grafikkarte' : 'Prozessor'}) …`, null);
       });
-      if (this.state.aiRes !== res) { this.aiRunning = false; return this.runAI(); }
+      this.aiRunning = false;
+      if (this.aiWanted() !== wanted) { this.busyEl.classList.add('hidden'); return this.runAI(); }
       this.aiDepth = d;
-      this.aiKey = String(res);
-      const dev = d.device === 'webgpu' ? 'WebGPU (Grafikkarte)' : 'WebAssembly (Prozessor)';
+      this.aiKey = wanted;
+      const dev = d.device === 'webgpu' ? 'Grafikkarte (WebGPU)' : 'Prozessor (WebAssembly)';
       const notes = {
         limit: `Auf diesem Gerät auf ${d.res} px begrenzt (Grafik-/Arbeitsspeicher).`,
         fallback: `Automatisch auf ${d.res} px reduziert – mehr Speicher war nicht verfügbar.`,
         wasm: `Grafikkarte nicht nutzbar – mit dem Prozessor bei ${d.res} px berechnet.`,
       };
-      info.innerHTML = `<b>${MODEL_NAME}</b> · ${dev} · ${d.dtype}<br>Tiefenkarte ${d.w} × ${d.h} px in ${fmtNum(d.ms / 1000, 1)} s` +
-        (d.note ? `<br><span class="note">${notes[d.note]}</span>` : '');
+      this.updateAIInfo(`Berechnet: ${d.w} × ${d.h} px · ${dev} · ${fmtNum(d.ms / 1000, 1)} s` +
+        (d.note ? `<br><span class="note">${notes[d.note]}</span>` : ''));
       if (d.note) toast(notes[d.note], false, 5000);
       this.busyEl.classList.add('hidden');
-      this.aiRunning = false;
       this.buildSource();
     } catch (err) {
       console.error(err);
       this.aiRunning = false;
       this.busyEl.classList.add('hidden');
-      info.innerHTML = '<span class="warn">KI-Tiefe nicht verfügbar: ' + (err.message || err) + '</span><br>Internetverbindung nötig (einmaliger Download von Bibliothek und Modell).';
+      this.panel.els.aiInfo.innerHTML = '<span class="warn">KI-Tiefe nicht verfügbar: ' + (err.message || err) + '</span><br>' +
+        'Beim ersten Mal ist eine Internetverbindung nötig (Download des Modells).';
       toast('KI-Tiefenschätzung fehlgeschlagen – siehe Hinweis im Panel.', true, 6000);
     }
     if (this.aiPending) { this.aiPending = false; this.buildSource(); }

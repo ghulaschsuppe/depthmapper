@@ -148,10 +148,16 @@
         <li><b>Höhe berechnen aus:</b>
           <ul>
             <li><i>Helligkeit</i> – Grauwert = Höhe. Ideal für Logos, Schriften, Zeichnungen.</li>
-            <li><i>✨ KI-Tiefe (Foto)</i> – ein neuronales Netz (Depth Anything V2) schätzt die echte räumliche Tiefe
-              eines Fotos: Nase vor Wangen, Person vor Hintergrund. Ideal für Porträts, Tiere, Objekte.
-              Läuft lokal im Browser (mit WebGPU in ca. 1 s, sonst einige Sekunden). Beim ersten Mal werden
-              Bibliothek und Modell geladen (ca. 30–80 MB), danach kommen sie aus dem Browser-Cache.
+            <li><i>✨ KI-Tiefe (Foto)</i> – ein neuronales Netz schätzt die echte räumliche Tiefe
+              eines Fotos: Nase vor Wangen, Person vor Hintergrund. Ideal für Porträts, Tiere, Objekte. Zwei Modelle:
+              <ul>
+                <li><b>Depth Anything 3 Mono Large</b> (ByteDance, ca. 350 MB) – beste Details, empfohlen am PC.</li>
+                <li><b>Depth Anything V2 Small</b> (ca. 50 MB) – schnell, läuft auch am Handy.</li>
+              </ul>
+              Beide sind Apache-2.0-lizenziert (frei, auch kommerziell) und laufen lokal im Browser – mit Grafikkarte (WebGPU)
+              in wenigen Sekunden, sonst über den Prozessor deutlich langsamer. Das Modell wird nur <b>einmal</b> geladen und
+              dauerhaft im Browser gespeichert (im privaten/Inkognito-Modus nicht). Speicher freigeben: Button
+              <i>Gespeicherte KI-Modelle löschen</i>.
               Mit <i>Hintergrund nach Tiefe abschneiden</i> trennst du das Motiv vom Hintergrund,
               <i>Foto-Struktur einmischen</i> holt feine Details wie Haare zurück.</li>
           </ul></li>
@@ -170,8 +176,8 @@
 
       <h3>Datenschutz</h3>
       <p>Alle Berechnungen laufen lokal in deinem Browser. Modelle und Bilder verlassen deinen Rechner nicht.
-        Einstellungen werden nur lokal im Browser gespeichert. Für die KI-Tiefe werden nur Programmbibliothek
-        (jsDelivr) und Modell (Hugging Face) heruntergeladen – das Foto selbst wird nicht übertragen.</p>
+        Einstellungen werden nur lokal im Browser gespeichert. Für die KI-Tiefe werden nur die Laufzeit
+        (ONNX Runtime über jsDelivr) und das Modell (Hugging Face) heruntergeladen – das Foto selbst wird nicht übertragen.</p>
     </div>
   </dialog>
 </body>

@@ -1,0 +1,4 @@
+# Korrekte MIME-Typen für ES-Module und SVG
+AddType text/javascript .js .mjs
+AddType image/svg+xml .svg
+DirectoryIndex index.html

@@ -1,0 +1,31 @@
+name: Deploy (Entwicklerversion)
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Quelltext auschecken
+        uses: actions/checkout@v4
+
+      - name: Per FTP hochladen
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USER }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          server-dir: ./depthmapper/
+          exclude: |
+            **/.git*
+            **/.git*/**
+            .github/**
+            PROJEKT.md
+            README.md

@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DepthMapper – Depthmaps aus 3D-Modellen und Bildern</title>
+  <meta name="description" content="Erzeugt Depthmaps (Graustufen-Tiefenbilder) aus STL/OBJ/3MF/GLB-Modellen und Reliefs aus Bildern – für 3D-Gravur mit Lasern wie dem xTool F2 Ultra.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./vendor/three/build/three.module.min.js",
+      "three/addons/": "./vendor/three/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#111"/></linearGradient></defs>
+        <circle cx="16" cy="16" r="14" fill="url(#lg)" stroke="#d9a441" stroke-width="2"/>
+        <path d="M8 21 L13 12 L17 18 L20 14 L25 21 Z" fill="#d9a441" opacity=".9"/>
+      </svg>
+      <div><b>DepthMapper</b><br><small>Depthmaps &amp; Reliefs für die 3D-Lasergravur</small></div>
+    </div>
+    <span class="header-spacer"></span>
+    <nav class="tabs" role="tablist">
+      <button data-mode="model" class="active" role="tab">① 3D-Modell → Depthmap</button>
+      <button data-mode="image" role="tab">② Bild → Relief</button>
+    </nav>
+    <button class="icon-btn" id="helpBtn" title="Hilfe &amp; Workflow">?</button>
+  </header>
+
+  <main>
+    <!-- ================= Bereich 1: 3D-Modell → Depthmap ================= -->
+    <section class="mode" id="mode-model">
+      <aside class="panel" id="model-panel"></aside>
+
+      <div class="viewport" id="model-view">
+        <div class="view-toolbar" id="model-toolbar"></div>
+        <div class="empty-state" id="model-empty">
+          <div class="drop-target">
+            <h2>3D-Modell laden</h2>
+            <p>STL, OBJ, PLY, 3MF, GLB oder GLTF hierher ziehen</p>
+            <p style="margin-top:14px"><button class="btn primary" data-action="open-model">Datei auswählen</button>
+              <button class="btn" data-action="demo-model">Beispielmodell</button></p>
+            <p style="font-size:12px;margin-top:14px">Alles läuft lokal im Browser – es werden keine Dateien hochgeladen.</p>
+          </div>
+        </div>
+        <div class="view-legend hidden" id="model-legend">
+          <span class="chip">🟧 Laser-Richtung &amp; Erfassungsrahmen</span>
+          <span class="chip">🟦 Tiefen-Grenze</span>
+        </div>
+      </div>
+
+      <aside class="preview-col">
+        <div class="card">
+          <div class="card-head">Depthmap <span class="spacer"></span>
+            <button class="btn small" id="model-bgtoggle" title="Hintergrund der Vorschau umschalten">◐</button>
+          </div>
+          <div class="card-body">
+            <div class="map2d" id="model-map"><div class="placeholder">Noch kein Modell geladen</div></div>
+            <canvas class="hist" id="model-hist" width="512" height="108"></canvas>
+            <div class="stat-line" id="model-stats"></div>
+            <button class="btn primary big" id="model-export" disabled>⬇ PNG exportieren</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">Gravur-Vorschau 3D <span class="spacer"></span><span class="chip" style="padding:2px 8px">drehen / zoomen</span></div>
+          <div class="relief-box" id="model-relief"></div>
+        </div>
+      </aside>
+    </section>
+
+    <!-- ================= Bereich 2: Bild → Relief ================= -->
+    <section class="mode hidden" id="mode-image">
+      <aside class="panel" id="image-panel"></aside>
+
+      <div class="viewport" id="image-view">
+        <div class="view-toolbar"><span class="chip">Gravur-Vorschau 3D · ziehen = drehen · Rad = zoomen · Rechtsklick = verschieben</span></div>
+        <div class="empty-state" id="image-empty">
+          <div class="drop-target">
+            <h2>Bild laden</h2>
+            <p>PNG, JPG, WebP, GIF, BMP oder SVG hierher ziehen</p>
+            <p style="margin-top:14px"><button class="btn primary" data-action="open-image">Bild auswählen</button>
+              <button class="btn" data-action="demo-image">Beispielbild</button></p>
+            <p style="font-size:12px;margin-top:14px">Tipp: Logos und Motive mit transparentem Hintergrund ergeben die saubersten Reliefs.</p>
+          </div>
+        </div>
+      </div>
+
+      <aside class="preview-col">
+        <div class="card">
+          <div class="card-head">Depthmap <span class="spacer"></span>
+            <button class="btn small" id="image-bgtoggle" title="Hintergrund der Vorschau umschalten">◐</button>
+          </div>
+          <div class="card-body">
+            <div class="map2d" id="image-map"><div class="placeholder">Noch kein Bild geladen</div></div>
+            <canvas class="hist" id="image-hist" width="512" height="108"></canvas>
+            <div class="stat-line" id="image-stats"></div>
+            <button class="btn primary big" id="image-export" disabled>⬇ PNG exportieren</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">Original</div>
+          <div class="card-body">
+            <div class="map2d" id="image-orig" style="aspect-ratio:4/3"><div class="placeholder">–</div></div>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <input type="file" id="file-model" accept=".stl,.obj,.ply,.3mf,.glb,.gltf" hidden>
+  <input type="file" id="file-image" accept="image/*,.svg" hidden>
+  <div id="toast"></div>
+
+  <dialog id="help">
+    <div class="dlg-head"><h2>So funktioniert DepthMapper</h2><button class="icon-btn" data-close>✕</button></div>
+    <div class="dlg-body">
+      <h3>Grundprinzip</h3>
+      <p>Eine Depthmap ist ein Graustufenbild: <b>Weiß = Oberfläche (wird nicht/kaum graviert)</b>,
+        <b>Schwarz = tiefste Stelle</b>. Der Laser trägt dunkle Bereiche tiefer ab. Transparente Pixel werden gar nicht bearbeitet.
+        Interpretiert deine Software die Grauwerte umgekehrt, aktiviere einfach <i>Invertieren</i>.</p>
+
+      <h3>① 3D-Modell → Depthmap</h3>
+      <ol>
+        <li><b>Laden:</b> STL, OBJ, PLY, 3MF, GLB/GLTF per Drag &amp; Drop.</li>
+        <li><b>Ausrichten:</b> Der Laser schaut immer <b>von oben</b> (orangener Pfeil). Wähle die Seite, die graviert werden soll
+          (Oben/Vorne/…), drehe frei per Regler oder Gizmo – oder drehe die Kamera auf die gewünschte Seite und klicke
+          <i>Aktuelle Ansicht übernehmen</i>.</li>
+        <li><b>Tiefe:</b> Mit <i>Tiefenbereich</i> legst du fest, wie tief ins Modell „hineingeschaut“ wird (blaue Ebene).
+          Alles dahinter wird schwarz oder transparent. Für Gesichter reichen oft 30–50 %.</li>
+        <li><b>Graustufen:</b> Gamma, Schwarz-/Weißpunkt, Glättung, Stufen. <i>Invertieren</i> erzeugt eine
+          <b>Negativ-Prägung</b> – z.&nbsp;B. ein Gesicht, das vertieft eingeprägt wird (Stempel, Gussform, Siegel).</li>
+        <li><b>Export:</b> PNG mit transparentem Hintergrund. Die Auflösung (DPI) wird in die Datei geschrieben,
+          damit sie in XCS/LightBurn direkt in der richtigen Größe (mm) erscheint.</li>
+      </ol>
+
+      <h3>② Bild → Relief</h3>
+      <ol>
+        <li>Bild laden, Ausschnitt mit Zoom/Versatz/Drehung festlegen.</li>
+        <li>Hintergrund entfernen (Transparenz, weiß, schwarz oder Eckfarbe).</li>
+        <li>Höhe aus Helligkeit ableiten, mit <i>Wölbung</i> einen Kissen-/Dom-Effekt erzeugen,
+          mit <i>Details</i> feine Strukturen betonen.</li>
+        <li>In der großen 3D-Vorschau das Ergebnis auf dem gewählten Material prüfen und exportieren.</li>
+      </ol>
+
+      <h3>xTool F2 Ultra</h3>
+      <p>Die Voreinstellungen arbeiten standardmäßig mit <b>256 Graustufen</b> (8 Bit) – so wie sie z.&nbsp;B. für
+        Messing-Münzen hinterlegt sind. Weniger Stufen (z.&nbsp;B. 16 oder 32) ergeben ein sichtbares Stufenrelief
+        („stepped depth map“). Die angezeigte Tiefe pro Stufe hilft bei der Wahl der Durchgänge.
+        Größe, Linien/cm und Gravurtiefe sind <b>Startwerte</b> – Leistung, Geschwindigkeit, Frequenz und Durchgänge
+        stellst du in XCS ein; für neue Materialien empfiehlt sich eine Testmatrix.</p>
+      <p>Import in XCS: PNG einfügen, als 3D-/Relief-Gravur (Graustufen-Tiefenbild) bearbeiten. Die Größe in mm stimmt
+        bereits durch die eingebettete Auflösung; ggf. in XCS kontrollieren.</p>
+
+      <h3>Datenschutz</h3>
+      <p>Alle Berechnungen laufen lokal in deinem Browser. Modelle und Bilder verlassen deinen Rechner nicht.
+        Einstellungen werden nur lokal im Browser gespeichert.</p>
+    </div>
+  </dialog>
+</body>
+</html>
